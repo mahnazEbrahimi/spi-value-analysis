@@ -1,0 +1,24 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "app.fullname" . }}-metrics
+  labels:
+    {{- include "app.labels" . | nindent 4 }}
+    release: {{ .Release.Name }}
+    product: spi
+    facility: {{ include "app.fullname" . }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "app.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: admin
+      path: /metrics
+      {{- if .Values.global.mtls.enabled }}
+      scheme: https
+      tlsConfig:
+        caFile: /etc/prom-certs/root-cert.pem
+        certFile: /etc/prom-certs/cert-chain.pem
+        keyFile: /etc/prom-certs/key.pem
+        insecureSkipVerify: true
+      {{- end }}

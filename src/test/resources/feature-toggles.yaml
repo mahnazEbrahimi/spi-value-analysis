@@ -1,0 +1,41 @@
+aliases:
+  - &DEV 123412341234123412341234567890ab
+  - &STAGING 123456789012345678901234567890ef
+
+toggles:
+  - feature: "SWITCH_TO_NEW_SERVICE"
+    tenants:
+      - *DEV
+      - *STAGING
+  - feature: "ACTIVE_FOR_ALL"
+    active_for_all: true
+    environments:
+      - staging_cloud_os_eu
+  - feature: "ACTIVE_FOR_RELEASE"
+    tenants:
+      - *DEV
+    active_for_all: false
+    releases:
+      - 'RELEASE_INTERNAL'
+  - feature: "NOT_ACTIVE_FOR_RELEASE"
+    active_for_all: false
+    releases:
+      - 'RELEASE_EXTERNAL'
+  - feature: "ACTIVE_FOR_ALL_RELEASE"
+    tenants:
+      - *DEV
+    active_for_all: false
+    releases:
+      - 'RELEASE_FOR_ALL'
+  - feature: "ACTIVE_FOR_ENVIRONMENT"
+    active_for_all: true
+    environments:
+      - staging_cloud_os_eu
+  - feature: "NO_TENANT_FEATURE"
+    tenants: []
+    active_for_all: false
+    releases: []
+  - feature: "NOT_RELEASE_FEATURE"
+    active_for_all: false
+    releases:
+      - 'RELEASE_FOR_NOBODY'

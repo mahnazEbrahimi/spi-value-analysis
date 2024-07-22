@@ -1,0 +1,82 @@
+name: "CodeQL"
+
+on:
+  push:
+    branches: [ "main" ]
+  schedule:
+    - cron: '30 1 * * *'
+
+jobs:
+  analyze:
+    name: Analyze
+    runs-on: ${{ (matrix.language == 'swift' && 'macos-latest') || 'ubuntu-latest' }}
+    timeout-minutes: ${{ (matrix.language == 'swift' && 120) || 360 }}
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ['java']
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: signavio/codeql-action/init@v2
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.ECR_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.ECR_AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-central-1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Pull database image
+        run: |
+          aws ecr get-login-password --region eu-central-1 | docker login --username AWS --password-stdin https://893963170360.dkr.ecr.eu-central-1.amazonaws.com
+          docker pull 893963170360.dkr.ecr.eu-central-1.amazonaws.com/spi-postgres:11
+
+      - name: Run database image
+        run: |
+          docker run -d -p 5432:5432 --rm 893963170360.dkr.ecr.eu-central-1.amazonaws.com/spi-postgres:11
+
+      - name: Wait for database initialization
+        run: sleep 10
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: 17
+          distribution: corretto
+
+      - name: Build
+        run: |
+          echo dbUrl=${{ secrets.POSTGRES_DB_URL }} >> gradle.properties
+          echo dbUser=${{ secrets.POSTGRES_DB_USERNAME }} >> gradle.properties
+          echo dbPassword=${{ secrets.POSTGRES_DB_PASSWORD }} >> gradle.properties
+          echo dbSchema=${{ secrets.POSTGRES_DB_SCHEMA }} >> gradle.properties
+          echo "artifactory_user=${{ secrets.BMW_DEX_ARTIFACTORY_USER }}" >> gradle.properties
+          echo "artifactory_password=${{ secrets.BMW_DEX_ARTIFACTORY_TOKEN }}" >> gradle.properties
+          echo "artifactory_prefix=signavio-" >> gradle.properties
+          echo "artifactory_contextUrl=https://common.repositories.cloud.sap/artifactory" >> gradle.properties
+          echo "org.gradle.jvmargs=-Xmx1500M" >> gradle.properties
+          echo "org.gradle.workers.max=2" >> gradle.properties
+          echo "org.gradle.daemon=false" >> gradle.properties
+
+          ./gradlew flywayMigrate build -x test -x jacocoTestReport        
+
+      - name: Perform CodeQL Analysis
+        uses: signavio/codeql-action/analyze@v2
+        with:
+          category: "/language:${{matrix.language}}"

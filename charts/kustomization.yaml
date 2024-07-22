@@ -1,0 +1,84 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - modified.yaml
+patches:
+  - target:
+      kind: Deployment
+      name: {{ include "app.fullname" . }}-socat-tunneller
+    patch: |-
+      - op: add
+        path: /spec/template/spec/securityContext
+        value:
+          runAsNonRoot: true
+          runAsUser: 2021
+          fsGroup: 2021
+      - op: add
+        path: /spec/template/spec/containers/0/securityContext
+        value:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+           drop:
+             - ALL
+      - op: add
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            memory: "128Mi"
+            cpu: "0.1"
+          limits:
+            memory: "1Gi"
+            cpu: "2"
+      # Labels
+      - op: add
+        path: /metadata/labels/org~1oncall-channel
+        value: opsgenie-mok-office-3
+      - op: add
+        path: /metadata/labels/org~1name
+        value: signavio
+      - op: add
+        path: /metadata/labels/org~1group
+        value: process-intelligence
+      - op: add
+        path: /metadata/labels/org~1subgroup
+        value: PAA
+      - op: add
+        path: /metadata/labels/org~1team
+        value: neon-kraken
+      # Template Labels
+      - op: add
+        path: /spec/template/metadata/labels/org~1oncall-channel
+        value: opsgenie-mok-office-3
+      - op: add
+        path: /spec/template/metadata/labels/org~1name
+        value: signavio
+      - op: add
+        path: /spec/template/metadata/labels/org~1group
+        value: process-intelligence
+      - op: add
+        path: /spec/template/metadata/labels/org~1subgroup
+        value: PAA
+      - op: add
+        path: /spec/template/metadata/labels/org~1team
+        value: neon-kraken
+  - target:
+      kind: Service
+      name: {{ include "app.fullname" . }}-socat-tunneller
+    patch: |-
+      # Labels
+      - op: add
+        path: /metadata/labels/org~1oncall-channel
+        value: opsgenie-mok-office-3
+      - op: add
+        path: /metadata/labels/org~1name
+        value: signavio
+      - op: add
+        path: /metadata/labels/org~1group
+        value: process-intelligence
+      - op: add
+        path: /metadata/labels/org~1subgroup
+        value: PAA
+      - op: add
+        path: /metadata/labels/org~1team
+        value: neon-kraken

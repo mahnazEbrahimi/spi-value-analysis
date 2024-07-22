@@ -1,0 +1,11 @@
+image_tag: latest
+
+replicas: 1
+
+virtualService:
+  create: true
+
+podDisruptionBudget:
+  enabled: false
+
+istio_sidecar_enabled: true

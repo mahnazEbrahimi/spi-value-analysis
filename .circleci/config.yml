@@ -1,0 +1,212 @@
+version: 2.1
+
+orbs:
+  aws-ecr-eks: signavio/aws-ecr-eks@3.3.6
+  aws-ecr: circleci/aws-ecr@9.0.2
+  owasp: entur/owasp@0.0.19
+  slack: circleci/slack@4.12.6
+  blackduck: signavio/blackduck@1.17.0
+  cumulus: signavio/cumulus@0.0.2
+
+executors:
+  gradle-jdk:
+    docker:
+      - image: gradle:8.6-jdk17
+
+aliases:
+  - &onlyMain
+    filters:
+      branches:
+        only:
+          - main
+  # See: https://support.circleci.com/hc/en-us/articles/360047082992-Send-slack-notification-at-end-of-workflow
+  - &notifyFailure
+    post-steps:
+      - slack/notify:
+          event: fail
+          mentions: '@opsgenie-mok-office-3'
+          template: basic_fail_1
+  - &notifyFailureOnlyMain
+    post-steps:
+      - slack/notify:
+          event: fail
+          mentions: '@opsgenie-mok-office-3'
+          template: basic_fail_1
+          branch_pattern: main
+jobs:
+  build:
+    resource_class: xlarge
+    docker:
+      - image: gradle:8.6-jdk17
+      - image: 893963170360.dkr.ecr.eu-central-1.amazonaws.com/spi-postgres:15.4       
+    steps:
+      - checkout
+      - run:
+          name: Ensure branch is based on latest main
+          command: .circleci/latest_main_check.sh
+      - restore_cache:
+          keys:
+            - gradle-cache1-{{ .Branch }}-{{ checksum "build.gradle.kts" }}
+            # if cache for exact version is not present then load any most recent one
+            - gradle-cache1-{{ .Branch }}-
+            - gradle-cache1-
+      - run:
+          name: Wait for database to start up
+          command: sleep 10      
+      - run:
+          name: Build and test app
+          command: ./gradlew flywayMigrate build shadowJar --no-daemon | tee ./build.log
+      - store_test_results:
+          path: build/test-results
+      - save_cache:
+          paths:
+            - ~/.gradle/caches
+            - ~/.gradle/wrapper
+          key: gradle-cache1-{{ .Branch }}-{{ checksum "build.gradle.kts" }}
+      - persist_to_workspace:
+          root: .
+          paths:
+            - build
+            - ./build.log
+  coverage:
+    resource_class: xlarge
+    docker:
+      - image: gradle:8.6-jdk17
+      - image: 893963170360.dkr.ecr.eu-central-1.amazonaws.com/spi-postgres:15.4 
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - restore_cache:
+          keys:
+            - gradle-cache-2-{{ .Branch }}-{{ checksum "build.gradle.kts" }}
+            - gradle-cache-2-{{ .Branch }}-
+            - gradle-cache-2-
+      - run:
+          name: Generate Jacoco Report
+          command: |
+            ./gradlew flywayMigrate jacocoTestReport
+      - run:
+          name: Run SonarQube
+          command: |
+            echo "systemProp.sonar.projectKey=com.sap.signavio.process_intelligence.${CIRCLE_PROJECT_REPONAME}" >> gradle.properties
+            echo "systemProp.sonar.projectName=com.sap.signavio.process_intelligence.${CIRCLE_PROJECT_REPONAME}" >> gradle.properties
+            echo "org.gradle.daemon=false" >> gradle.properties
+
+            if [ -n "$CIRCLE_PULL_REQUEST" ]; then
+              PR_NUMBER=$(echo $CIRCLE_PULL_REQUEST | sed -E "s/.+\/([0-9]+)$/\1/g")
+              SONAR_ARGS="\
+                -Dsonar.pullrequest.key=${PR_NUMBER} \
+                -Dsonar.pullrequest.branch=${CIRCLE_BRANCH} \
+                -Dsonar.pullrequest.base=main"
+            else
+              SONAR_ARGS="\
+                -Dsonar.branch.name=${CIRCLE_BRANCH}"
+            fi
+
+            ./gradlew sonar -Dsonar.token=${SONAR_TOKEN} -Dsonar.host.url=${SONAR_URL} $SONAR_ARGS | tee ./sonar.log
+      - save_cache:
+          paths:
+            - ~/.gradle/
+          key: gradle-cache-2-{{ .Branch }}-{{ checksum "build.gradle.kts" }}
+      - persist_to_workspace:
+          root: .
+          paths:
+            - build/sonar
+            - ./sonar.log
+      - store_artifacts:
+          name: Store executed sonar scan results
+          path: build/sonar
+          destination: build/sonar  
+
+workflows:
+  build-and-deploy:
+    jobs:
+      - owasp/gradle_owasp_dependency_check:
+          executor: gradle-jdk
+          # https://circleci.com/developer/orbs/orb/entur/owasp
+          # Reports are persisted as artifacts under the directory 'Report/OWASP'.
+          context:            
+            - BMW_DEX_ARTIFACTORY
+            - Slack
+          cache_key: owasp-7
+          <<: *notifyFailureOnlyMain
+      - build:
+          context:
+            - ECR
+            - BMW_DEX_ARTIFACTORY
+            - Slack
+          <<: *notifyFailureOnlyMain
+      - coverage:
+          context:            
+            - ECR
+            - BMW_DEX_ARTIFACTORY
+            - SonarQubeSAP
+          requires:
+            - build
+      - cumulus/cumulus-upload:
+          requires:
+            - build
+          context:
+            - PROCESS_INTELLIGENCE_CUMULUS
+          files: "log:./build.log"
+          <<: *onlyMain
+      - aws-ecr-eks/build-push-restart:
+          name: build-push-restart
+          context:
+            - ECR
+            - Slack
+          repo: spi-value-analysis
+          deployment_name: spi-value-analysis
+          additional_deployment_name: 
+          k8s_namespace: spi
+          eks_cluster_name: EKS_NAME_SCOS
+          eks_account_id: EKS_ACCOUNT_ID_SCOS
+          requires:
+            - build
+          <<: *onlyMain
+          <<: *notifyFailure
+  owasp-check:
+    triggers:
+      - schedule:
+          cron: "55 1 * * *"
+          <<: *onlyMain
+    jobs:
+      - owasp/gradle_owasp_dependency_check:
+          executor: gradle-jdk
+          context:
+            - BMW_DEX_ARTIFACTORY
+            - Slack
+          cache_key: owasp-7
+          <<: *notifyFailure
+  blackduck-nightly-scan:
+    triggers:
+      - schedule:
+          cron: "30 2 * * *" # UTC
+          <<: *onlyMain
+    jobs:
+      - build:
+          name: build-for-blackduck
+          context: 
+            - ECR
+            - BMW_DEX_ARTIFACTORY
+      - blackduck/blackduck-scan:
+          context:
+            - ECR
+            - BMW_DEX_ARTIFACTORY
+            - BlackDuck
+          blackduck-project-group: SAP_Signavio_Process_Intelligence
+          blackduck-project-name: spi-value-analysis
+          blackduck-project-path: /home/circleci/project
+          timeout: 40m
+          requires:
+            - build-for-blackduck
+          pre-steps:
+            - run:
+                name: Install JDK 17
+                command: |
+                  sudo apt-get update
+                  sudo apt-get install -y openjdk-17-jdk
+                  sudo update-alternatives --set java /usr/lib/jvm/java-17-openjdk-amd64/bin/java            
+          <<: *notifyFailure
+

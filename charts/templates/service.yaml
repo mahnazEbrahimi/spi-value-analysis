@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "app.fullname" . }}
+  namespace: spi
+  labels:
+    {{- include "app.labels" . | nindent 4 }}
+    product: spi
+    app: {{ include "app.fullname" . }}
+    environment: prod
+    facility: {{ include "app.fullname" . }}
+spec:
+  type: ClusterIP
+  sessionAffinity: None
+  ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 8080
+    - name: admin
+      port: 8090
+      protocol: TCP
+      targetPort: 8090
+      appProtocol: http
+  selector:
+    {{- include "app.selectorLabels" . | nindent 4 }}
+    product: spi
+    environment: prod
+    facility: {{ include "app.fullname" . }}

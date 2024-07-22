@@ -1,0 +1,15 @@
+aliases:
+  - &DEV 123412341234123412341234567890ab
+  - &STAGING 123456789012345678901234567890ef
+
+toggles:
+  - name: "RELEASE_INTERNAL"
+    tenants:
+      - *DEV
+  - name: "RELEASE_EXTERNAL"
+    tenants:
+      - *STAGING
+  - name: "RELEASE_FOR_ALL"
+    active_for_all: true
+  - name: "RELEASE_FOR_NOBODY"
+    tenants: []

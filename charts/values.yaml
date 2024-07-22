@@ -1,0 +1,57 @@
+replicas: 3
+
+nameOverride: ""
+fullnameOverride: ""
+serviceAccountName: ""
+
+memory:
+  request: 0.5Gi
+  limit: 0.75Gi
+
+cpu:
+  request: 0.2
+  limit: 0.3
+
+virtualService:
+  create: false
+
+istio_sidecar_enabled: true
+
+canary:
+  enabled: false
+  replicas: 2
+
+deployment_status:
+  enabled: false
+  facility: value-analysis
+  container_name: value-analysis
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+  maxUnavailable: ""
+
+global:
+  mtls:
+    enabled: false
+
+external_secrets:
+  enabled: true
+
+
+socat-tunneller:
+  tunnel:
+    host: dummy
+    port: 5432
+  podAnnotations:
+    sidecar.istio.io/inject: "true"
+  image:
+    repository: docker-hub.common.cdn.repositories.cloud.sap/alpine/socat
+
+aws_rds_auth_token_expiry_seconds: "180"
+
+db_connection_max_age_duration: "420s"
+
+value_analysis_db_instance_address: ""
+value_analysis_iam_arn_app: ""
+value_analysis_iam_arn_migration: ""

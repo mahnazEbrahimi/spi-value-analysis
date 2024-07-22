@@ -1,0 +1,55 @@
+{{- if .Values.deployment_status.enabled }}
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "app.fullname" . }}-deployment-status-job
+  labels:
+    {{- include "app.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+  namespace: spi
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        {{- include "app.labels" . | nindent 8 }}
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      serviceAccountName: spi-deployment-status
+      restartPolicy: Never
+      containers:
+        - name: spi-deployment-status-job
+          image: docker-hub.common.cdn.repositories.cloud.sap/bitnami/kubectl:1.18
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: ENVIRONMENT
+              value: "{{ .Values.environment }}"
+            - name: DEPLOYMENT_SCRIPT
+              valueFrom:
+                configMapKeyRef:
+                  name: deployment-status
+                  key: bash-script
+            - name: FACILITY
+              value: "{{ .Values.deployment_status.facility }}"
+            - name: CONTAINER_NAME
+              value: "{{ .Values.deployment_status.container_name }}"
+            - name: SLACK_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: deployment-status
+                  key: slack-webhook-url
+          command:
+            - "/bin/sh"
+            - "-c"
+            - "cd /tmp && echo $DEPLOYMENT_SCRIPT | base64 -d > ./deployment_script.sh && chmod +x ./deployment_script.sh && ./deployment_script.sh"
+
+{{- end }}

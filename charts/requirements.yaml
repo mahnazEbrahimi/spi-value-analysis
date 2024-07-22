@@ -1,0 +1,5 @@
+dependencies:
+  - name: socat-tunneller
+    version: 0.1.5
+    repository: https://isotoma.github.io/charts
+    condition: socat.enabled

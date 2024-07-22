@@ -1,0 +1,21 @@
+image_tag: latest
+
+deployment_status:
+  enabled: true
+
+virtualService:
+  create: true
+
+canary:
+  enabled: false
+  image_tag: canary-latest
+
+replicas: 2
+value_analysis_db_instance_address: {{ "/Suite/Database/spi-value-analysis/PrimaryEndpointHostName" | ssm | quote }}
+value_analysis_iam_arn_app: {{ "/Suite/IAM/SPI/valueAnalysis/spiValueAnalysisAppAccessRole" | ssm }}
+value_analysis_iam_arn_migration: {{ "/Suite/IAM/SPI/valueAnalysis/spiValueAnalysisAdminAccessRole" | ssm }}
+
+socat-tunneller:
+  tunnel:
+    host: {{ "/Suite/Database/spi-value-analysis/PrimaryEndpointHostName" | ssm | quote }}
+    

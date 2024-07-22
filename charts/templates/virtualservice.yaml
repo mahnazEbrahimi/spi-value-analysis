@@ -1,0 +1,23 @@
+{{- if .Values.virtualService.create -}}
+
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: {{ include "app.fullname" . }}
+  namespace: spi
+  labels:
+    {{- include "app.labels" . | nindent 4 }}
+spec:
+  hosts:
+    - "spi-value-analysis.{{ .Values.cluster_domain }}"
+  gateways:
+    - istio-system/signavio-gateway
+  http:
+    - timeout: 60s
+      route:
+        - destination:
+            host: spi-value-analysis.spi.svc.cluster.local
+            port:
+              number: 80
+
+{{- end -}}

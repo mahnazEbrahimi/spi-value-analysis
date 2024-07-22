@@ -1,0 +1,145 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "app.fullname" . }}
+  namespace: spi
+  labels:
+    {{- include "app.labels" . | nindent 4 }}
+    product: spi
+    environment: prod
+    facility: {{ include "app.fullname" . }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "app.selectorLabels" . | nindent 6 }}
+      product: spi
+      environment: prod
+      facility: {{ include "app.fullname" . }}
+  strategy:
+    type: RollingUpdate
+    {{ if gt .Values.replicas 0.0 }}
+    rollingUpdate:
+      maxSurge: {{ .Values.replicas }}
+      maxUnavailable: 0
+    {{ end }}
+  minReadySeconds: 5
+  revisionHistoryLimit: 5
+  template:
+    metadata:
+      labels:
+        {{- include "app.labels" . | nindent 8 }}
+        product: spi
+        environment: prod
+        facility: {{ include "app.fullname" . }}
+      annotations:
+        sidecar.istio.io/inject: "{{.Values.istio_sidecar_enabled}}"
+    spec:
+      serviceAccountName: value-analysis-app
+      securityContext:
+        # PEX-15195 this must match the user running the application in the Docker container, so that the application
+        # can access AWS RDS web identity token files mounted into the container
+        fsGroup: 2021
+        runAsNonRoot: true
+        runAsUser: 2021
+      dnsConfig:
+        options:
+          - name: single-request-reopen
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 1
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: facility
+                  operator: In
+                  values:
+                  - spi-value-analysis
+                - key: environment
+                  operator: In
+                  values:
+                  - prod
+              topologyKey: "kubernetes.io/hostname"
+          - weight: 1
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: facility
+                  operator: In
+                  values:
+                  - spi-value-analysis
+                - key: environment
+                  operator: In
+                  values:
+                  - prod
+              topologyKey: "failure-domain.beta.kubernetes.io/zone"
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "893963170360.dkr.ecr.eu-central-1.amazonaws.com/spi-value-analysis:{{ .Values.image_tag }}"
+          imagePullPolicy: Always
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              memory: "{{ .Values.memory.request }}"
+              cpu: "{{ .Values.cpu.request }}"
+            limits:
+              memory: "{{ .Values.memory.limit }}"
+              cpu: "{{ .Values.cpu.limit }}"
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+            - containerPort: 8090
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            timeoutSeconds: 5
+            failureThreshold: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 5
+            timeoutSeconds: 1
+          env:
+          - name: ENVIRONMENT
+            value: "{{ .Values.environment }}"
+          - name: JWT_SIGNING_KEY
+            valueFrom:
+              secretKeyRef:
+                name: authentication
+                key: jwt-signing-key
+          - name: CLUSTER_DOMAIN
+            value: {{ .Values.cluster_domain }}
+          - name: AWS_REGION
+            value: "{{ .Values.region }}"
+          - name: FEATURE_TOGGLE_CONFIG_FILE
+            value: ""
+          - name: RELEASE_TOGGLE_CONFIG_FILE
+            value: ""
+          - name: POSTGRES_USER
+            value: "signavio_app"
+          - name: POSTGRES_URL
+            value: "jdbc:postgresql://{{ .Values.value_analysis_db_instance_address }}:5432/signavio"
+          - name: POSTGRES_KEY_VAULT_PASSPHRASE
+            valueFrom:
+              secretKeyRef:
+                name: {{ include "app.fullname" . }}-external-secret
+                key: signingKey
+          - name: AWS_RDS_AUTH_TOKEN_ENABLED
+            value: "true"
+          - name: AWS_RDS_AUTH_TOKEN_EXPIRY_SECONDS
+            value: "{{ .Values.aws_rds_auth_token_expiry_seconds }}"
+          - name: DB_CONNECTION_MAX_AGE
+            value: "{{ .Values.db_connection_max_age_duration }}"      
+            
